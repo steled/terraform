@@ -1,0 +1,4 @@
+*/*.tfvars
+*/*values.yaml
+*/*/*values.yaml
+*/certs/*

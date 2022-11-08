@@ -1,0 +1,186 @@
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  privileged: false
+#  readOnlyRootFilesystem: true
+  runAsGroup: 1000
+  runAsNonRoot: true
+  runAsUser: 1000
+#  capabilities:
+#    add:
+#      - SYS_CHROOT
+
+image:
+  pullPolicy: IfNotPresent
+  rootless: true
+#  tag: 1.14.6
+#  repository: docker.io/gitea
+#  tag: 1.13.7 # ToDo: rootless image
+#  pullPolicy: IfNotPresent
+#  tag: 1.14.0-rc2
+#  tag: 1.14.0-rc2-rootless
+
+service:
+  http:
+    annotations:
+      metallb.universe.tf/allow-shared-ip: gitea-staging-share
+    port: 3000
+    type: LoadBalancer
+    loadBalancerIP: 172.16.4.42
+  ssh:
+    annotations:
+      metallb.universe.tf/allow-shared-ip: gitea-staging-share
+    port: 22
+    type: LoadBalancer
+    loadBalancerIP: 172.16.4.42
+
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: duckdns-webhook-cert-manager-webhook-duckdns-${environment}
+  hosts:
+    - ${gitea_domain}
+#    - host: ${gitea_domain}
+#      paths:
+#        - path: /
+#          pathType: Prefix
+  tls:
+    - secretName: gitea-staging-tls
+      hosts:
+        - ${gitea_domain}
+
+persistence:
+  enabled: true
+  existingClaim: gitea-staging-server-pvc
+  size: 5Gi
+
+extraVolumeMounts:
+  - name: backup
+    mountPath: /backup
+
+extraVolumes:
+  - name: backup
+    persistentVolumeClaim:
+      claimName: gitea-staging-backup-pvc
+
+statefulset:
+  env:
+    - name: GITEA__DATABASE__SCHEMA
+      value: gitea
+#    - name: USER_UID
+#      value: 1000
+#    - name: USER_GID
+#      value: 1000
+
+gitea:
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "3000"
+
+  admin:
+#    existingSecret: gitea-staging-admin-secret
+    username: "${gitea_admin_username}"
+    password: "${gitea_admin_password}"
+    email: "${gitea_admin_email}"
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+
+  config:
+    APP_NAME: "Gitea: Git with a cup of tea"
+    RUN_MODE: prod
+#    RUN_USER: git
+
+    oauth2:
+      JWT_SECRET: "${gitea_oauth2_jwt_secret}"
+
+    security:
+      INTERNAL_TOKEN: "${gitea_security_internal_token}"
+      INSTALL_LOCK: true
+      SECRET_KEY: "${gitea_security_secret_key}"
+      PASSWORD_COMPLEXITY: lower,upper,digit,spec
+
+    server:
+      DOMAIN: "${gitea_domain}"
+      SSH_DOMAIN: "%(DOMAIN)s"
+      PROTOCOL: http
+      HTTP_PORT: 3000
+#      ROOT_URL: "%(PROTOCOL)s://%(DOMAIN)s:%(HTTP_PORT)s/"
+#      ROOT_URL: "https://g1t3a.5p4c3.duckdns.org/"
+      ROOT_URL: "https://%(DOMAIN)s/"
+      SSH_PORT: 22
+      LFS_START_SERVER: True
+      LFS_CONTENT_PATH: /data/lfs
+      LFS_JWT_SECRET: "${gitea_server_lfs_jwt_secret}"
+      OFFLINE_MODE: True
+
+#    repository:
+#      ROOT: /data/git/gitea-repositories
+
+    service:
+      REGISTER_EMAIL_CONFIRM: False
+      ENABLE_NOTIFY_MAIL: False
+      DISABLE_REGISTRATION: True
+      ALLOW_ONLY_EXTERNAL_REGISTRATION: False
+      ENABLE_CAPTCHA: False
+      REQUIRE_SIGNIN_VIEW: True
+      DEFAULT_KEEP_EMAIL_PRIVATE: True
+      DEFAULT_ALLOW_CREATE_ORGANIZATION: True
+      DEFAULT_ENABLE_TIMETRACKING: True
+      NO_REPLY_ADDRESS: noreply.%(DOMAIN)s
+
+    picture:
+      DISABLE_GRAVATAR: False
+      ENABLE_FEDERATED_AVATAR: False
+      AVATAR_UPLOAD_PATH: /data/avatars
+      REPOSITORY_AVATAR_UPLOAD_PATH: /data/repo-avatars
+
+    openid:
+      ENABLE_OPENID_SIGNIN: False
+
+    log:
+      MODE: file
+      LEVEL: info
+#      ROOT_PATH: /data/gitea/log
+
+postgresql:
+  image:
+    repository: postgres
+    # check version here:
+    # - https://gitea.com/gitea/helm-chart/src/branch/master/Chart.yaml
+    # - https://github.com/bitnami/charts/blob/master/bitnami/postgresql/Chart.yaml
+    # - https://hub.docker.com/_/postgres?tab=tags
+    # - check version local:
+    # kubectl exec -it -n gitea-staging gitea-staging-postgresql-0 -- psql -V
+    tag: 11.11
+    pullPolicy: IfNotPresent
+  volumePermissions:
+    enabled: true
+    image:
+      repository: steled/bitnami-shell
+      tag: latest-arm64
+      pullPolicy: IfNotPresent
+  postgresqlDataDir: /data/pgdata
+  persistence:
+    existingClaim: gitea-staging-postgresql-pvc
+    size: 5Gi
+    mountPath: /data/
+
+memcached:
+  image:
+    repository: memcached
+    # check version here:
+    # - https://gitea.com/gitea/helm-chart/src/branch/master/Chart.yaml
+    # - https://github.com/bitnami/charts/blob/master/bitnami/memcached/Chart.yaml
+    # - https://hub.docker.com/_/memcached?tab=tags
+    # - check version local:
+    # kubectl exec -it -n gitea-staging gitea-staging-memcached-* -- memcached -V
+    tag: 1.6.9
+    pullPolicy: IfNotPresent
+  arguments: []

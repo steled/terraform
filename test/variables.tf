@@ -1,0 +1,3 @@
+variable "gluster" {
+  type    = map
+}
